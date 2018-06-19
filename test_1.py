@@ -13,6 +13,8 @@ import numpy as np
 from skmultilearn.problem_transform import BinaryRelevance
 from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import accuracy_score
+from skmultilearn.adapt import MLkNN
+
 
 ########## TFIDF ##########
 # read tokenized abstarct, title, captions, paragraphs
