@@ -178,16 +178,20 @@ train_y = y[:9000]
 test_y = y[9000:]
 
 
-############# CLASSIFIER ############
+############# CLASSIFIER1: Binary Relevance ############
 
-# concatanate training set
-train_10d = np.concatenate((document_term_matrix_ab_title, train_matrix), axis=1)
-# concatanate testing set
-test_10d = np.concatenate((document_matrix_test, test_matrix), axis=1)
+classifier1 = BinaryRelevance(GaussianNB())
+classifier1.fit(train_10d, train_y)
+predictions1 = classifier1.predict(test_10d)
+accuracy1 = accuracy_score(test_y,predictions1)
+print("binary:" + accuracy1)
 
-classifier = BinaryRelevance(GaussianNB())
-classifier.fit(train_10d, train_y)
-predictions = classifier.predict(test_10d)
-accuracy = accuracy_score(test_y,predictions)
+
+############# CLASSIFIER2: ML-KNN ##############
+classifier2 = MLkNN(k = 50)
+classifier2.fit(train_10d, train_y)
+predictions2 = classifier2.predict(test_10d)
+accuracy2 = accuracy_score(test_y,predictions2)
+print("MLKNN:" + accuracy2)
 
     
