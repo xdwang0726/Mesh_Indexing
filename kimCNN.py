@@ -4,14 +4,45 @@
 Created on Wed Aug 15 17:05:09 2018
 
 @author: wangxindi
-
 """
+
+import time
+import os
 import numpy as np
 from data_helper import text_preprocess
+from keras.preprocessing.text import Tokenizer
+
+from keras.preprocessing import sequence
+from sklearn.preprocessing import MultiLabelBinarizer
+import random
+
+from keras.layers import Dense, Input, Flatten
+from keras.layers import Conv1D, MaxPooling1D, Embedding, Concatenate, Dropout, BatchNormalization
+from keras.optimizers import Adam
+from keras.models import Model
+
+import pickle
+
+
+from sklearn.metrics import hamming_loss
+from eval_helper import precision_at_ks, ndcg_score, perf_measure
+
+start = time. time()
+#### GPU specified ####
+os.environ["CUDA_DEVUCE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+########## FIXED PARAMETERS ##########
+BATCH_SIZE = 10
+EMBEDDING_DIM = 200
+VALIDATION_SPLIT = 0.2
 
 ########## Data preprocess ##########
-with open("FullArticle_Small.txt", "r") as data_token:
+with open("AbstractAndTitle.txt", "r") as data_token:
     datatoken = data_token.readlines()
+
+datatoken = list(filter(None, datatoken))
+print('Total number of document: %s' % len(datatoken))
     
 load_data = []
 data_length = len(datatoken)    
@@ -20,56 +51,72 @@ for i in range(0, data_length):
     token = text_preprocess(token)
     load_data.append(token)
     
-from keras.preprocessing.text import Tokenizer
 tokenizer = Tokenizer()
 tokenizer.fit_on_texts(load_data)
 
 x_seq = tokenizer.texts_to_sequences(load_data)
+print("x_seq: %s" % len(x_seq))
 word_index = tokenizer.word_index
 print('Found %s unique tokens.' % len(word_index))
 
+def second_largest(numbers):
+    count = 0
+    m1 = m2 = float('-inf')
+    for x in numbers:
+        count += 1
+        if x > m2:
+            if x >= m1:
+                m1, m2 = x, m1            
+            else:
+                m2 = x
+    return m2 if count >= 2 else None
+
 # find the maximum length of document
 MAX_SEQUENCE_LENGTH = max([len(seq) for seq in x_seq])
-print(MAX_SEQUENCE_LENGTH)
-# padding document to same length
-from keras.preprocessing import sequence
-data = sequence.pad_sequences(x_seq, maxlen = MAX_SEQUENCE_LENGTH)
-print('Shape of data tensor:', data.shape)
+seconde_largest_length= second_largest([len(seq) for seq in x_seq])
+print("Max sequence length: %s " % MAX_SEQUENCE_LENGTH)
+print("Second largest sequence length: %s" % seconde_largest_length)
 
+if MAX_SEQUENCE_LENGTH >= seconde_largest_length:
+    MAX_SEQUENCE_LENGTH = seconde_largest_length
+print("Padding size: %s" % MAX_SEQUENCE_LENGTH)
 
-from sklearn.preprocessing import MultiLabelBinarizer
-import re
+# read full meshIDs
+with open("MeshIDList.txt", "r") as ml:
+    meshIDs = ml.readlines()
+    
+meshIDs = [ids.strip() for ids in meshIDs]
+label_dim = len(meshIDs)
+mlb = MultiLabelBinarizer(classes = meshIDs)
+print("Lable dimension: ", label_dim)
+
 # read full mesh list 
-with open("MeshList.txt", "r") as ml:
+with open("MeshIDListSmall.txt", "r") as ml:
     meshList = ml.readlines()
-
-def remove_slash_asterisk(mesh):
-    new_list = []
-    for it in mesh:
-        mesh = re.sub("/.*", "", it)
-        mesh = mesh.replace("*", "")
-        new_list.append(mesh)
-    return new_list
 
 mesh_out = []
 for mesh in meshList:
     mesh_term = mesh.lstrip('0123456789| .-')
-    mesh_term = mesh_term.split("| ")
-    mesh_term = remove_slash_asterisk(mesh_term)
+    mesh_term = mesh_term.split("|")
+    mesh_term = [ids.strip() for ids in mesh_term]
     mesh_out.append(mesh_term)
 
-mlb = MultiLabelBinarizer()
-labels = mlb.fit_transform(mesh_out)
-label_dim = labels.shape[1]
-print('Shape of label tensor:', labels.shape)
-
+    
 VALIDATION_SPLIT = 0.2
-# TRAIN_TEST_SPLIT = 12000
 
-indices = np.arange(data.shape[0])
+# shuffle data
+data = []
+mesh_label = []
+indices = np.arange(len(x_seq))
 np.random.shuffle(indices)
-data = data[indices]
-labels = labels[indices]
+print("Indices length: %s" % len(indices))
+for i in indices:
+    data.append(x_seq[i])
+    mesh_label.append(mesh_out[i])
+    
+train_data = data[:12000]
+test_data = data[12000:]
+
 
 def getLabelIndex(labels):
     label_index = np.zeros((len(labels), len(labels[1])))
@@ -84,20 +131,35 @@ def getLabelIndex(labels):
     label_index = label_index.astype(np.int32)
     return label_index
 
-train_data = data[:12000]
-test_data = data[12000:]
 
-train_labels = labels[:12000]
-test_labels = labels[12000:]
+train_mesh = mesh_label[:12000]
+test_mesh = mesh_label[12000:]
+test_labels = mlb.fit_transform(test_mesh)
 test_labelsIndex = getLabelIndex(test_labels)
 
-nb_validation_samples = int(VALIDATION_SPLIT * train_data.shape[0])
+nb_validation_samples = int(VALIDATION_SPLIT * len(train_data))
 
 x_train = train_data[:-nb_validation_samples]
-y_train = train_labels[:-nb_validation_samples]
+y_train = train_mesh[:-nb_validation_samples]
 x_val = train_data[-nb_validation_samples:]
-y_val = train_labels[-nb_validation_samples:]
+y_val = train_mesh[-nb_validation_samples:]
 
+def data_generator(input_x, input_y, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH):
+    
+    def padding(input_data,maxlen):
+        padded_data = sequence.pad_sequences(input_data, maxlen)
+        return padded_data
+    input_y_labels = mlb.fit_transform(input_y)
+    loopcount = len(input_x) // batch_size
+    while True:
+        i = random.randint(0, loopcount - 1)
+        if len(input_x) == len(input_y_labels):
+#            for i in range(0, len(input_x), batch_size):
+            x_batch = padding(input_x[i*batch_size:(i+1)*batch_size], MAX_SEQUENCE_LENGTH)
+            y_batch = input_y_labels[i*batch_size:(i+1)*batch_size]
+            yield x_batch, y_batch
+        else:
+            print("Input dimension does not match!")
 
 ########## use pre-trained word2vec (200d) for embeddings ##########
 # read file 
@@ -109,11 +171,6 @@ vector = []
 for line in vectors:
     vector.append(line)
 vectors.close()
-
-#word2vec = []
-#for i, vec in enumerate(vector):
-#    w2v = word_list[i] + " " + vec
-#    word2vec.append(w2v)
 
 embeddings_index = {}
 for i, word in enumerate(word_list):
@@ -131,76 +188,147 @@ for word, i in word_index.items():
         # words not found in embedding index will be all-zeros.
         embedding_matrix[i] = embedding_vector    
         
-from keras.layers import Embedding
+########## Training ##########
 embedding_layer = Embedding(len(word_index) + 1,
                             EMBEDDING_DIM,
                             weights=[embedding_matrix],
                             input_length=MAX_SEQUENCE_LENGTH,
                             trainable = False)
-
-
-########## Training ##########
-from keras.layers import Dense, Input, Flatten
-from keras.layers import Conv1D, MaxPooling1D, Embedding, Merge, Dropout
-from keras.models import Model
-
-
-convs = []
-filter_sizes = [3,4,5]
-
+ 
 sequence_input = Input(shape=(MAX_SEQUENCE_LENGTH,), dtype='int32')
 embedded_sequences = embedding_layer(sequence_input)
 
+convs = []
+filter_sizes = [3, 4, 5]
+
 for fsz in filter_sizes:
     l_conv = Conv1D(nb_filter=128,filter_length=fsz,activation='relu')(embedded_sequences)
+    l_norm = BatchNormalization()(l_conv)
     pool_size = MAX_SEQUENCE_LENGTH - fsz + 1
-    l_pool = MaxPooling1D(pool_size)(l_conv)
+    l_pool = MaxPooling1D(pool_size)(l_norm)
     convs.append(l_pool)
     
-l_merge = Merge(mode='concat', concat_axis=1)(convs)
-#out = Dropout(0.25)(l_merge)
-#l_cov1= Conv1D(128, 5, activation='relu')(l_merge)
-#l_pool1 = MaxPooling1D(5)(l_cov1)
-#l_cov2 = Conv1D(128, 5, activation='relu')(l_pool1)
-#l_pool2 = MaxPooling1D(30)(l_cov2)
+l_merge = Concatenate(axis = 1)(convs)
 l_flat = Flatten()(l_merge)
-l_dense = Dense(128, activation='relu')(l_flat)
-#dense_out = Dropout(0.5)(l_dense)
-preds = Dense(label_dim, activation='sigmoid')(l_dense)
+#l_dense = Dense(128, activation='relu')(l_flat)
+#l_norm2 = BatchNormalization()(l_dense)
+l_dropout = Dropout(0.5)(l_flat)
+preds = Dense(label_dim, activation='sigmoid')(l_dropout)
 
 model = Model(sequence_input, preds)
-model.compile(loss='binary_crossentropy',
-              optimizer='adam',
-              metrics=['acc'])
+optimizer = Adam(lr=0.001)
+model.compile(optimizer=optimizer,
+              loss='binary_crossentropy',
+              metrics=['top_k_categorical_accuracy'])
 
 print("model fitting - more complex convolutional neural network")
 model.summary()
-model.fit(x_train, y_train, validation_data=(x_val, y_val),
-          epochs=20, batch_size=50)
+
+#layer_name_1 = 'conv1d_1'
+#conv_layer_1 = Model(inputs=model.input,
+#                                 outputs=model.get_layer(layer_name_1).output)
+
+#layer_name_2 = 'conv1d_2'
+#conv_layer_2 = Model(inputs=model.input,
+#                                 outputs=model.get_layer(layer_name_2).output)
+
+#layer_name_3 = 'conv1d_3'
+#conv_layer_3 = Model(inputs=model.input,
+#                                 outputs=model.get_layer(layer_name_3).output)
+
+#layer_name_4 = 'conv1d_4'
+#conv_layer_4 = Model(inputs=model.input,
+#                                 outputs=model.get_layer(layer_name_4).output)
+
+
+#print("Shape of Intermediate Layer: ", model.get_layer(layer_name_1).output_shape())
+
+model.fit_generator(generator = data_generator(x_train, y_train, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH),
+                    steps_per_epoch = len(x_train) // BATCH_SIZE, epochs = 2, 
+                    validation_data = data_generator(x_val, y_val, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH),
+                    validation_steps = len(x_val) // BATCH_SIZE)
 
 ########## Testing & Evaluations ##########
+
+#predict_value = open("PredictedLabels.pkl", 'wb')
+#pickle.dump(pred, predict_value)
+
+#conv_layer_output_1 = conv_layer_1.predict(test_data)
+#conv_layer_file_1 = open("Conv1.pkl", 'wb')
+#pickle.dump(conv_layer_output_1, conv_layer_file_1)
+
+#conv_layer_output_2 = conv_layer_2.predict(test_data)
+#conv_layer_file_2 = open("Conv2.pkl", 'wb')
+#pickle.dump(conv_layer_output_2, conv_layer_file_2)
+
+#conv_layer_output_3 = conv_layer_3.predict(test_data)
+#conv_layer_file_3 = open("Conv3.pkl", 'wb')
+#pickle.dump(conv_layer_output_3, conv_layer_file_3)
+
+#conv_layer_output_4 = conv_layer_4.predict(test_data)
+#conv_layer_file_4 = open("Conv4.pkl", 'wb')
+#pickle.dump(conv_layer_output_4, conv_layer_file_4)
+############################### Evaluations ###################################
+test_data = sequence.pad_sequences(test_data, maxlen = MAX_SEQUENCE_LENGTH)
 pred = model.predict(test_data)
+pred_file = open("CNN_L_Full.pkl", 'wb')
+pickle.dump(pred, pred_file)
 
+# predicted binary labels 
+# find the top k labels in the predicted label set
+def top_k_predicted(predictions, k):
+    predicted_label = np.zeros(predictions.shape)
+    for i in range(len(predictions)):
+        top_k_index = (predictions[i].argsort()[-k:][::-1]).tolist()
+        for j in top_k_index:
+            predicted_label[i][j] = 1
+    predicted_label = predicted_label.astype(np.int64)
+    return predicted_label
 
-from eval_helper import precision_at_ks
+top_10_pred = top_k_predicted(pred, 10)
+end = time.time()
+########################### Evaluation Metrics  #############################
+# precision @k
+precision = precision_at_ks(pred, test_labelsIndex, ks = [1, 3, 5])
 
-prediction = precision_at_ks(pred, test_labelsIndex, ks=[1, 3, 5])
-
-for k, p in zip([1, 3, 5], prediction):
+for k, p in zip([1, 3, 5], precision):
         print('p@{}: {:.5f}'.format(k, p))
 
-print("Finish!")
+# nDCG @k
+nDCG_1 = []
+nDCG_3 = []
+nDCG_5 = []
+Hamming_loss = []
+for i in range(pred.shape[0]):
+    
+    ndcg1 = ndcg_score(test_labels[i], pred[i], k = 1, gains="linear")
+    ndcg3 = ndcg_score(test_labels[i], pred[i], k = 3, gains="linear")
+    ndcg5 = ndcg_score(test_labels[i], pred[i], k = 5, gains="linear")
+    
+    hl = hamming_loss(test_labels[0], top_10_pred[0])
+    
+    nDCG_1.append(ndcg1)
+    nDCG_3.append(ndcg3)
+    nDCG_5.append(ndcg5)
+    
+    Hamming_loss.append(hl)
 
-########## K-fold cross validation ##########
-#from sklearn.model_selection import StratifiedKFold
+nDCG_1 = np.mean(nDCG_1)
+nDCG_3 = np.mean(nDCG_3)
+nDCG_5 = np.mean(nDCG_5)
+Hamming_loss = np.mean(hamming_loss)
 
-# Instantiate the cross validator
-#kfold_splits = 10
-#skf = StratifiedKFold(n_splits=kfold_splits, shuffle=True)
+print("ndcg@1: ", nDCG_1)
+print("ndcg@3: ", nDCG_3)
+print("ndcg@5: ", nDCG_5)
+print("Hamming Loss: ", Hamming_loss)
 
-#for index, (train_indices, val_indices) in enumerate(skf.split(train_data, train_labels)):
-#    print("Training on fold " + str(index+1))
-#    # Generate batches from indices
-#    xtrain, xval = train_data[train_indices], train_data[val_indices]
-#    ytrain, yval = train_labels[train_indices], train_labels[val_indices] 
+example_measure = perf_measure(test_labels, top_10_pred)
+print("MaP, MiP, MaF, MiF: " )
+for measure in example_measure:
+    print(measure, ",")
+    
+
    
+print("Run Time: ", end - start)
+print("Finish!")
