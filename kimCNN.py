@@ -224,56 +224,18 @@ model.compile(optimizer=optimizer,
 print("model fitting - more complex convolutional neural network")
 model.summary()
 
-#layer_name_1 = 'conv1d_1'
-#conv_layer_1 = Model(inputs=model.input,
-#                                 outputs=model.get_layer(layer_name_1).output)
-
-#layer_name_2 = 'conv1d_2'
-#conv_layer_2 = Model(inputs=model.input,
-#                                 outputs=model.get_layer(layer_name_2).output)
-
-#layer_name_3 = 'conv1d_3'
-#conv_layer_3 = Model(inputs=model.input,
-#                                 outputs=model.get_layer(layer_name_3).output)
-
-#layer_name_4 = 'conv1d_4'
-#conv_layer_4 = Model(inputs=model.input,
-#                                 outputs=model.get_layer(layer_name_4).output)
-
-
-#print("Shape of Intermediate Layer: ", model.get_layer(layer_name_1).output_shape())
-
 model.fit_generator(generator = data_generator(x_train, y_train, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH),
                     steps_per_epoch = len(x_train) // BATCH_SIZE, epochs = 2, 
                     validation_data = data_generator(x_val, y_val, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH),
                     validation_steps = len(x_val) // BATCH_SIZE)
 
-########## Testing & Evaluations ##########
-
-#predict_value = open("PredictedLabels.pkl", 'wb')
-#pickle.dump(pred, predict_value)
-
-#conv_layer_output_1 = conv_layer_1.predict(test_data)
-#conv_layer_file_1 = open("Conv1.pkl", 'wb')
-#pickle.dump(conv_layer_output_1, conv_layer_file_1)
-
-#conv_layer_output_2 = conv_layer_2.predict(test_data)
-#conv_layer_file_2 = open("Conv2.pkl", 'wb')
-#pickle.dump(conv_layer_output_2, conv_layer_file_2)
-
-#conv_layer_output_3 = conv_layer_3.predict(test_data)
-#conv_layer_file_3 = open("Conv3.pkl", 'wb')
-#pickle.dump(conv_layer_output_3, conv_layer_file_3)
-
-#conv_layer_output_4 = conv_layer_4.predict(test_data)
-#conv_layer_file_4 = open("Conv4.pkl", 'wb')
-#pickle.dump(conv_layer_output_4, conv_layer_file_4)
-############################### Evaluations ###################################
+############################### Testing ###################################
 test_data = sequence.pad_sequences(test_data, maxlen = MAX_SEQUENCE_LENGTH)
 pred = model.predict(test_data)
 pred_file = open("CNN_L_Full.pkl", 'wb')
 pickle.dump(pred, pred_file)
 
+############################### Evaluations ###################################
 # predicted binary labels 
 # find the top k labels in the predicted label set
 def top_k_predicted(predictions, k):
@@ -316,18 +278,12 @@ for i in range(pred.shape[0]):
 nDCG_1 = np.mean(nDCG_1)
 nDCG_3 = np.mean(nDCG_3)
 nDCG_5 = np.mean(nDCG_5)
-Hamming_loss = np.mean(hamming_loss)
+Hamming_loss = np.mean(Hamming_loss)
 
 print("ndcg@1: ", nDCG_1)
 print("ndcg@3: ", nDCG_3)
 print("ndcg@5: ", nDCG_5)
 print("Hamming Loss: ", Hamming_loss)
-
-example_measure = perf_measure(test_labels, top_10_pred)
-print("MaP, MiP, MaF, MiF: " )
-for measure in example_measure:
-    print(measure, ",")
-    
 
    
 print("Run Time: ", end - start)
