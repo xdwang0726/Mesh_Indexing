@@ -249,6 +249,7 @@ def top_k_predicted(predictions, k):
 
 top_10_pred = top_k_predicted(pred, 10)
 end = time.time()
+print("Run Time: ", end - start)
 ########################### Evaluation Metrics  #############################
 # precision @k
 precision = precision_at_ks(pred, test_labelsIndex, ks = [1, 3, 5])
@@ -285,6 +286,31 @@ print("ndcg@3: ", nDCG_3)
 print("ndcg@5: ", nDCG_5)
 print("Hamming Loss: ", Hamming_loss)
 
+###### example-based evaluation
+# convert binary label back to orginal ones
+top_10_labels = mlb.inverse_transform(top_10_pred)
+top_20_labels = mlb.inverse_transform(top_20_pred)
+
+# calculate example-based evaluation
+example_based_measure_10 = example_based_evaluation(test_mesh, top_10_labels)
+print("EMP@10, EMR@10, EMF@10")
+for em in example_based_measure_10:
+    print(em, ",")
+
+example_based_measure_20 = example_based_evaluation(test_mesh, top_20_labels, 20)
+print("EMP@20, EMR@20, EMF@20")
+for em in example_based_measure_20:
+    print(em, ",")    
+
+# label-based evaluation
+label_measure_10 = perf_measure(test_labels, top_10_pred)
+print("MaP@10, MiP@10, MaF@10, MiF@10: " )
+for measure in label_measure_10:
+    print(measure, ",")
+
+label_measure_20 = perf_measure(test_labels, top_20_pred)
+print("MaP@20, MiP@20, MaF@20, MiF@20: " )
+for measure in label_measure_20:
+    print(measure, ",")    
    
-print("Run Time: ", end - start)
 print("Finish!")
