@@ -122,31 +122,33 @@ def micro_f1(MiP, MiR):
     MiF = stats.hmean([MiP, MiR])
     return MiF
 
+
 def perf_measure(y_actual, y_hat):
-    result = []
     TP_total = []
     FP_total = []
     TN_total = []
     FN_total = []
 
-    for i in range(y_actual.shape[0]): 
-        TP = 0
-        FP = 0
-        TN = 0
-        FN = 0
-        for j in range(y_actual.shape[1]):
-            if y_actual[i,j]==y_hat[i,j]==1:
+    for i in range(y_actual.shape[1]): 
+        TP = 1
+        FP = 1
+        TN = 1
+        FN = 1
+        
+        for j in range(y_actual.shape[0]):
+            if y_actual[j,i]==y_hat[j,i]==1:
                 TP += 1
-            if y_hat[i,j]==1 and y_actual[i,j]!=y_hat[i,j]:
+            if y_hat[j,i]==1 and y_actual[j,i]!=y_hat[j,i]:
                 FP += 1
-            if y_actual[i,j]==y_hat[i,j]==0:
+            if y_actual[j,i]==y_hat[j,i]==0:
                 TN += 1
-            if y_hat[i,j]==0 and y_actual[i,j]!=y_hat[i,j]:
-                FN += 1         
+            if y_hat[j,i]==0 and y_actual[j,i]!=y_hat[j,i]:
+                FN += 1 
         TP_total.append(TP)
         FP_total.append(FP)
         TN_total.append(TN)
         FN_total.append(FN)
+       
     
     MaP = macro_precision(TP_total, FP_total)
     MiP = micro_precision(TP_total, FP_total)
@@ -157,3 +159,42 @@ def perf_measure(y_actual, y_hat):
     
     result = [MaP, MiP, MaF, MiF]
     return result
+
+def example_based_precision(CL,y_hat):
+    EBP = []
+    for i in range(len(CL)):
+        ebp = CL[i]/len(y_hat[i])
+        EBP.append(ebp)
+    EBP = np.mean(EBP)
+    return EBP
+
+def example_based_recall(CL, y_actural):
+    EBR = []
+    for i in range(len(CL)):
+        ebr = CL[i]/len(y_actural[i])
+        EBR.append(ebr)
+    EBR = np.mean(EBR)
+    return EBR
+
+def example_based_fscore(CL, y_actual,y_hat):
+    EBF = []
+    for i in range(len(CL)):
+        ebf = (2*CL[i])/(len(y_hat[i]) + len(y_actual[i]))
+        EBF.append(ebf)
+    EBF = np.mean(EBF)
+    return EBF
+
+def example_based_evaluation(y_actual, y_hat):
+    num_common_label = []
+    for i in range(len(y_actual)):
+        labels = intersection(y_actual[i],y_hat[i])
+        num_label = len(labels)
+        num_common_label.append(num_label)
+
+    
+    EBP = example_based_precision(num_common_label, y_hat)
+    EBR = example_based_recall(num_common_label, y_actual)
+    EBF = example_based_fscore(num_common_label, y_actual, y_hat)
+    result = [EBP, EBR, EBF]
+    return result
+    
