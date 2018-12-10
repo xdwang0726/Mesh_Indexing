@@ -11,6 +11,7 @@ import os
 import numpy as np
 from data_helper import text_preprocess
 from keras.preprocessing.text import Tokenizer
+from sklearn.model_selection import train_test_split
 
 from keras.preprocessing import sequence
 from sklearn.preprocessing import MultiLabelBinarizer
@@ -113,9 +114,6 @@ print("Indices length: %s" % len(indices))
 for i in indices:
     data.append(x_seq[i])
     mesh_label.append(mesh_out[i])
-    
-train_data = data[:12000]
-test_data = data[12000:]
 
 
 def getLabelIndex(labels):
@@ -131,9 +129,8 @@ def getLabelIndex(labels):
     label_index = label_index.astype(np.int32)
     return label_index
 
+train_data, test_data, train_mesh, test_mesh = train_test_split(data, mesh_label, test_size=0.1, random_state = 8)
 
-train_mesh = mesh_label[:12000]
-test_mesh = mesh_label[12000:]
 test_labels = mlb.fit_transform(test_mesh)
 test_labelsIndex = getLabelIndex(test_labels)
 
