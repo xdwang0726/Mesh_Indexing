@@ -17,18 +17,13 @@ import numpy as np
 from data_helper import text_preprocess
 from keras.preprocessing.text import Tokenizer
 from sklearn.model_selection import train_test_split
-
-import h5py
-
 from keras.preprocessing import sequence
 from sklearn.preprocessing import MultiLabelBinarizer
 import random
-
 from keras.layers import Dense, Input, Flatten
 from keras.layers import Conv2D, MaxPooling2D, Embedding, Concatenate, Dropout, BatchNormalization, Reshape
 from keras.optimizers import Adam
 from keras.models import Model
-
 from sklearn.metrics import hamming_loss
 from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based_evaluation
 
@@ -132,9 +127,6 @@ def getLabelIndex(labels):
 train_data, test_data, train_mesh, test_mesh = train_test_split(data, mesh_label, test_size=0.2, random_state = 8)
 
 test_labels = mlb.fit_transform(test_mesh)
-labelInfo = h5py.File("Label_info.h5", "w")
-labelInfo["trueLabel"] = test_labels
-
 test_labelsIndex = getLabelIndex(test_labels)
 
 nb_validation_samples = int(VALIDATION_SPLIT * len(train_data))
