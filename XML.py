@@ -202,9 +202,9 @@ reshape = Reshape((MAX_SEQUENCE_LENGTH, EMBEDDING_DIM, 1))(embedded_sequences)
 for fsz in filter_sizes:
     l_conv_XML = Conv2D(nb_filter=128,kernel_size=(MAX_SEQUENCE_LENGTH, fsz),activation='relu', data_format = 'channels_last')(reshape)
     l_norm = BatchNormalization()(l_conv_XML)
-    #pool_size = (EMBEDDING_DIM - fsz + 1, 1) #
-    pool_size = (10, 1)
-    l_pool_XML = MaxPooling2D(pool_size = pool_size, strides = None, padding='valid', data_format = 'channels_first')(l_norm)
+    #pool_size = (EMBEDDING_DIM - fsz + 1, 1) # maxpooling
+    pool_size = (10, 1) # chunck maxpooling
+    l_pool_XML = MaxPooling2D(pool_size = pool_size, strides = (10, 1), padding='valid', data_format = 'channels_first')(l_norm)
     convs_XML.append(l_pool_XML)
 
 l_merge_XML = Concatenate(axis=2)(convs_XML)
