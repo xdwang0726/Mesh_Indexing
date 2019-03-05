@@ -10,6 +10,16 @@ import numpy as np
 
 from scipy.sparse import issparse
 
+from build_graph import Graph
+
+connections = []
+with open('MeSH_parent_child_mapping_2018.txt') as f:
+    for line in f:
+        item = tuple(line.strip().split(" "))
+        connections.append(item)
+        
+# build a graph
+g = Graph(connections, directed=False)
 
 def precision(p, t):
     """
@@ -184,17 +194,44 @@ def example_based_fscore(CL, y_actual,y_hat):
     EBF = np.mean(EBF)
     return EBF
 
-def example_based_evaluation(y_actual, y_hat):
+
+def find_common_label(y_actual, y_hat):
+    
     num_common_label = []
+    
     for i in range(len(y_actual)):
         labels = intersection(y_actual[i],y_hat[i])
         num_label = len(labels)
         num_common_label.append(num_label)
-
+    return num_common_label
     
+
+def example_based_evaluation(y_actual, y_hat):
+    
+    num_common_label = find_common_label(y_actual, y_hat)
+  
     EBP = example_based_precision(num_common_label, y_hat)
     EBR = example_based_recall(num_common_label, y_actual)
     EBF = example_based_fscore(num_common_label, y_actual, y_hat)
-    result = [EBP, EBR, EBF]
+    result = [round(EBP,5), round(EBR,5), round(EBF,5)]
     return result
+
+
+def find_node_set(y_hat, distance):
     
+    new_y_hat = []
+    for i in range(len(y_hat)):
+        y_new_hat = g.find_node(y_hat[i], distance)
+        new_y_hat.append(y_new_hat)
+    return new_y_hat
+
+def hierachy_eval(y_actural, y_hat, distance):
+    
+    new_y_actural = find_node_set(y_actural, distance)
+    new_y_hat = find_node_set(y_hat, distance)
+    num_common_label = find_common_label(new_y_actural, new_y_hat)
+    
+    HP = example_based_precision(num_common_label, new_y_hat)
+    HR = example_based_recall(num_common_label, new_y_actural)
+    result = [round(HP,5), round(HR,5)]
+    return result 
