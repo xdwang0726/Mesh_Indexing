@@ -22,11 +22,8 @@ from keras.layers import Conv1D, MaxPooling1D, Embedding, Concatenate, Dropout, 
 from keras.optimizers import Adam
 from keras.models import Model
 
-import pickle
-
-
 from sklearn.metrics import hamming_loss
-from eval_helper import precision_at_ks, ndcg_score, perf_measure
+from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based_evaluation, hierachy_eval
 
 start = time. time()
 #### GPU specified ####
@@ -102,9 +99,6 @@ for mesh in meshList:
     mesh_term = [ids.strip() for ids in mesh_term]
     mesh_out.append(mesh_term)
 
-    
-VALIDATION_SPLIT = 0.2
-
 # shuffle data
 data = []
 mesh_label = []
@@ -114,7 +108,6 @@ print("Indices length: %s" % len(indices))
 for i in indices:
     data.append(x_seq[i])
     mesh_label.append(mesh_out[i])
-
 
 def getLabelIndex(labels):
     label_index = np.zeros((len(labels), len(labels[1])))
@@ -128,8 +121,9 @@ def getLabelIndex(labels):
     label_index = np.array(label_index, dtype= int)
     label_index = label_index.astype(np.int32)
     return label_index
-
+    
 train_data, test_data, train_mesh, test_mesh = train_test_split(data, mesh_label, test_size=0.1, random_state = 8)
+
 
 test_labels = mlb.fit_transform(test_mesh)
 test_labelsIndex = getLabelIndex(test_labels)
@@ -207,8 +201,6 @@ for fsz in filter_sizes:
     
 l_merge = Concatenate(axis = 1)(convs)
 l_flat = Flatten()(l_merge)
-#l_dense = Dense(128, activation='relu')(l_flat)
-#l_norm2 = BatchNormalization()(l_dense)
 l_dropout = Dropout(0.5)(l_flat)
 preds = Dense(label_dim, activation='sigmoid')(l_dropout)
 
@@ -222,29 +214,51 @@ print("model fitting - more complex convolutional neural network")
 model.summary()
 
 model.fit_generator(generator = data_generator(x_train, y_train, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH),
-                    steps_per_epoch = len(x_train) // BATCH_SIZE, epochs = 2, 
+                    steps_per_epoch = len(x_train) // BATCH_SIZE, epochs = 20, 
                     validation_data = data_generator(x_val, y_val, batch_size = BATCH_SIZE, padding_size = MAX_SEQUENCE_LENGTH),
                     validation_steps = len(x_val) // BATCH_SIZE)
 
-############################### Testing ###################################
-test_data = sequence.pad_sequences(test_data, maxlen = MAX_SEQUENCE_LENGTH)
-pred = model.predict(test_data)
-pred_file = open("CNN_L_Full.pkl", 'wb')
-pickle.dump(pred, pred_file)
+# serialize model to JSON
+#model_json = model.to_json()
+#with open("CNN_model.json", "w") as json_file:
+#    json_file.write(model_json)
+# serialize weights to HDF5
+#model.save_weights("CNN_model_weights.h5")
+#print("Saved model to disk")
 
 ############################### Evaluations ###################################
+test_data = sequence.pad_sequences(test_data, maxlen = MAX_SEQUENCE_LENGTH)
+pred = model.predict(test_data)
+
 # predicted binary labels 
 # find the top k labels in the predicted label set
-def top_k_predicted(predictions, k):
+def top_k_predicted(goldenTruth, predictions, k):
     predicted_label = np.zeros(predictions.shape)
     for i in range(len(predictions)):
-        top_k_index = (predictions[i].argsort()[-k:][::-1]).tolist()
+        goldenK = len(goldenTruth[i])
+        if goldenK <= k:
+            top_k_index = (predictions[i].argsort()[-goldenK:][::-1]).tolist()
+        else:
+            top_k_index = (predictions[i].argsort()[-k:][::-1]).tolist()
         for j in top_k_index:
             predicted_label[i][j] = 1
     predicted_label = predicted_label.astype(np.int64)
     return predicted_label
 
-top_10_pred = top_k_predicted(pred, 10)
+
+top_5_pred = top_k_predicted(test_mesh, pred, 5)
+# convert binary label back to orginal ones
+top_5_mesh = mlb.inverse_transform(top_5_pred)
+top_5_mesh = [list(item) for item in top_5_mesh]
+ 
+top_10_pred = top_k_predicted(test_mesh, pred, 10)
+top_10_mesh = mlb.inverse_transform(top_10_pred)
+top_10_mesh = [list(item) for item in top_10_mesh]
+       
+top_15_pred = top_k_predicted(test_mesh, pred, 15)
+top_15_mesh = mlb.inverse_transform(top_15_pred)
+top_15_mesh = [list(item) for item in top_15_mesh]
+
 end = time.time()
 print("Run Time: ", end - start)
 ########################### Evaluation Metrics  #############################
@@ -258,56 +272,108 @@ for k, p in zip([1, 3, 5], precision):
 nDCG_1 = []
 nDCG_3 = []
 nDCG_5 = []
-Hamming_loss = []
+Hamming_loss_5 = []
+Hamming_loss_10 = []
+Hamming_loss_15 = []
 for i in range(pred.shape[0]):
     
     ndcg1 = ndcg_score(test_labels[i], pred[i], k = 1, gains="linear")
     ndcg3 = ndcg_score(test_labels[i], pred[i], k = 3, gains="linear")
     ndcg5 = ndcg_score(test_labels[i], pred[i], k = 5, gains="linear")
     
-    hl = hamming_loss(test_labels[0], top_10_pred[0])
+    hl_5 = hamming_loss(test_labels[0], top_5_pred[0])
+    hl_10 = hamming_loss(test_labels[0], top_10_pred[0])
+    hl_15 = hamming_loss(test_labels[0], top_15_pred[0])
     
     nDCG_1.append(ndcg1)
     nDCG_3.append(ndcg3)
     nDCG_5.append(ndcg5)
     
-    Hamming_loss.append(hl)
+    Hamming_loss_5.append(hl_5)
+    Hamming_loss_10.append(hl_10)
+    Hamming_loss_15.append(hl_15)
 
 nDCG_1 = np.mean(nDCG_1)
 nDCG_3 = np.mean(nDCG_3)
 nDCG_5 = np.mean(nDCG_5)
-Hamming_loss = np.mean(Hamming_loss)
 
+Hamming_loss_5 = np.mean(Hamming_loss_5)
+Hamming_loss_5 = round(Hamming_loss_5,5)
+Hamming_loss_10 = np.mean(Hamming_loss_10)
+Hamming_loss_10 = round(Hamming_loss_10,5)
+Hamming_loss_15 = np.mean(Hamming_loss_15)
+Hamming_loss_15 = round(Hamming_loss_15,5)
+      
 print("ndcg@1: ", nDCG_1)
 print("ndcg@3: ", nDCG_3)
 print("ndcg@5: ", nDCG_5)
-print("Hamming Loss: ", Hamming_loss)
+print("Hamming Loss@20: ", Hamming_loss_5)
+print("Hamming Loss@10: ", Hamming_loss_10)
+print("Hamming Loss@20: ", Hamming_loss_15)
 
-###### example-based evaluation
-# convert binary label back to orginal ones
-top_10_labels = mlb.inverse_transform(top_10_pred)
-top_20_labels = mlb.inverse_transform(top_20_pred)
+########## example-based evaluation ##########
 
 # calculate example-based evaluation
-example_based_measure_10 = example_based_evaluation(test_mesh, top_10_labels)
+example_based_measure_5 = example_based_evaluation(test_mesh, top_5_mesh)
+print("EMP@5, EMR@5, EMF@5")
+for em in example_based_measure_5:
+    print(em, ",")
+
+example_based_measure_10 = example_based_evaluation(test_mesh, top_10_mesh)
 print("EMP@10, EMR@10, EMF@10")
 for em in example_based_measure_10:
     print(em, ",")
 
-example_based_measure_20 = example_based_evaluation(test_mesh, top_20_labels, 20)
-print("EMP@20, EMR@20, EMF@20")
-for em in example_based_measure_20:
+example_based_measure_15 = example_based_evaluation(test_mesh, top_15_mesh)
+print("EMP@15, EMR@15, EMF@15")
+for em in example_based_measure_15:
     print(em, ",")    
 
-# label-based evaluation
+########### label-based evaluation ############
+label_measure_5 = perf_measure(test_labels, top_5_pred)
+print("MaP@5, MiP@5, MaF@5, MiF@5: " )
+for measure in label_measure_5:
+    print(measure, ",")    
+    
 label_measure_10 = perf_measure(test_labels, top_10_pred)
 print("MaP@10, MiP@10, MaF@10, MiF@10: " )
 for measure in label_measure_10:
     print(measure, ",")
 
-label_measure_20 = perf_measure(test_labels, top_20_pred)
-print("MaP@20, MiP@20, MaF@20, MiF@20: " )
-for measure in label_measure_20:
+label_measure_15 = perf_measure(test_labels, top_15_pred)
+print("MaP@15, MiP@15, MaF@15, MiF@15: " )
+for measure in label_measure_15:
     print(measure, ",")    
-   
+
+############ hierachy evaluation ################
+hierachy_eval_5_dis1 = hierachy_eval(test_mesh, top_5_mesh, 1)
+print("HierEvalP_1@5, HierEvalR_1@5: " )
+for measure in hierachy_eval_5_dis1:
+    print(measure, ",")     
+hierachy_eval_5_dis2 = hierachy_eval(test_mesh, top_5_mesh, 2)
+print("HierEvalP_2@5, HierEvalR_2@5: " )
+for measure in hierachy_eval_5_dis2:
+    print(measure, ",") 
+
+    
+hierachy_eval_10_dis1 = hierachy_eval(test_mesh, top_10_mesh, 1)
+print("HP_1@10, HR_1@10: " )
+for measure in hierachy_eval_10_dis1:
+    print(measure, ",")     
+hierachy_eval_10_dis2 = hierachy_eval(test_mesh, top_10_mesh, 2)
+print("HP_2@10, HR_2@10: " )
+for measure in hierachy_eval_10_dis2:
+    print(measure, ",") 
+
+    
+hierachy_eval_15_dis1 = hierachy_eval(test_mesh, top_15_mesh, 1)
+print("HP_1@15, HR_1@15: " )
+for measure in hierachy_eval_15_dis1:
+    print(measure, ",")     
+hierachy_eval_15_dis2 = hierachy_eval(test_mesh, top_15_mesh, 2)
+print("HP_2@15, HR_2@15: " )
+for measure in hierachy_eval_15_dis2:
+    print(measure, ",") 
+
+
 print("Finish!")
