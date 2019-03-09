@@ -25,7 +25,7 @@ from keras.optimizers import Adam
 from keras.models import Model
 
 from sklearn.metrics import hamming_loss
-from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based_evaluation
+from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based_evaluation, hierachy_eval
 
 start = time. time()
 #### GPU specified ####
