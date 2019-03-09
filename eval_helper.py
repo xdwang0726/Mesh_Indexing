@@ -9,6 +9,7 @@ Created on Tue Aug 21 02:00:00 2018
 import numpy as np
 
 from scipy.sparse import issparse
+from scipy import stats
 
 from build_graph import Graph
 
@@ -21,6 +22,9 @@ with open('MeSH_parent_child_mapping_2018.txt') as f:
 # build a graph
 g = Graph(connections, directed=False)
 
+def intersection(lst1, lst2): 
+    return list(set(lst1) & set(lst2))
+
 def precision(p, t):
     """
     p, t: two sets of labels/integers
@@ -30,13 +34,13 @@ def precision(p, t):
     return len(t.intersection(p)) / len(p)
 
 
-def precision_at_ks(Y_pred_scores, Y_test, ks=[1, 3, 5, 10]):
+def precision_at_ks(Y_pred_scores, Y_test, ks):
     """
     Y_pred_scores: nd.array of dtype float, entry ij is the score of label j for instance i
     Y_test: list of label ids
     """
     result = []
-    for k in [1, 3, 5, 10]:
+    for k in ks:
         Y_pred = []
         for i in np.arange(Y_pred_scores.shape[0]):
             if issparse(Y_pred_scores):
@@ -98,7 +102,8 @@ def ndcg_score(y_true, y_score, k, gains="linear"):
     """
     best = dcg_score(y_true, y_true, k, gains)
     actual = dcg_score(y_true, y_score, k, gains)
-    return actual / best
+    result = actual / best
+    return round(result,5)
 
 def macro_precision(TP, FP):
     MaP = []
@@ -167,19 +172,24 @@ def perf_measure(y_actual, y_hat):
     MaF = macro_f1(MaP, MaR)
     MiF = micro_f1(MiP, MiR)
     
-    result = [MaP, MiP, MaF, MiF]
+    result = [round(MaP, 5), round(MiP,5), round(MaF,5), round(MiF,5)]
     return result
 
 def example_based_precision(CL,y_hat):
+    
     EBP = []
+    
     for i in range(len(CL)):
         ebp = CL[i]/len(y_hat[i])
         EBP.append(ebp)
+        
     EBP = np.mean(EBP)
     return EBP
 
 def example_based_recall(CL, y_actural):
+    
     EBR = []
+    
     for i in range(len(CL)):
         ebr = CL[i]/len(y_actural[i])
         EBR.append(ebr)
@@ -187,13 +197,15 @@ def example_based_recall(CL, y_actural):
     return EBR
 
 def example_based_fscore(CL, y_actual,y_hat):
+    
     EBF = []
+    
     for i in range(len(CL)):
         ebf = (2*CL[i])/(len(y_hat[i]) + len(y_actual[i]))
         EBF.append(ebf)
+    
     EBF = np.mean(EBF)
     return EBF
-
 
 def find_common_label(y_actual, y_hat):
     
@@ -217,13 +229,82 @@ def example_based_evaluation(y_actual, y_hat):
     return result
 
 
-def find_node_set(y_hat, distance):
+#def hierachy_EBP(num_original_CL, num_distance_CL,len_dis_CL, y_hat):
+#    EBP = []          
+#    for i in range(len(num_original_CL)):
+#        temp_value = num_original_CL[i]
+#        for j in range(len(num_distance_CL)):
+#            value = num_distance_CL[j][i]
+#            temp_value = temp_value + value
+#            temp_len = len(y_hat[i]) + len_dis_CL[j][i]
+#        ebp = temp_value/temp_len
+#        EBP.append(ebp)
+#    EBP = np.mean(EBP)
+#    return EBP
+
+#def hierachy_EBR(num_original_CL, num_distance_CL, y_actural):
+#    EBR = []          
+#    for i in range(len(num_original_CL)):
+#        temp = num_original_CL[i]
+#        for j in range(len(num_distance_CL)):
+#            value = num_distance_CL[j][i]
+#            temp = temp + value
+#        ebr = temp/len(y_actural[i])
+#        EBR.append(ebr)
+#    EBR = np.mean(EBR)
+#    return EBR
+
+#def hierachy_fscore(num_original_CL, num_distance_CL, len_dis_CL, y_actural, y_hat):
+#    EBF = []          
+#    for i in range(len(num_original_CL)):
+#        temp = num_original_CL[i]
+#        for j in range(len(num_distance_CL)):
+#            value = num_distance_CL[j][i]
+#            temp = temp + value
+#            temp_len = len(y_hat[i]) + len_dis_CL[j][i]
+#        ebf = 2*temp/(temp_len + len(y_actural[i]))  
+#        EBF.append(ebf)
+#    EBF = np.mean(EBF)
+#    return EBF
+
+
+def find_node_set(y, distance):
     
-    new_y_hat = []
-    for i in range(len(y_hat)):
-        y_new_hat = g.find_node(y_hat[i], distance)
-        new_y_hat.append(y_new_hat)
-    return new_y_hat
+    new_y = []
+    for i in range(len(y)):
+        y_parents = g.find_node(y[i], distance)
+        y_new = list(set(y_parents+y[i]))
+        new_y.append(y_new)
+    return new_y
+
+
+#def hierachy(y_actural, y_hat, distance):
+    
+#    original_CL = find_common_label(y_actural, y_hat)
+    
+#    num_CL_with_distance = []
+#    len_num_CL_distance = []
+#    for i in range(distance):
+#        new_y_hat = find_node_set(y_hat, i+1)
+#        len_new_y_hat = [len(item) for item in new_y_hat]
+#        len_num_CL_distance.append(len_new_y_hat)
+#        num_CL = find_common_label(y_actural, new_y_hat)
+#        num_CL_with_distance.append(num_CL)
+
+
+#    num_difference = []
+#    for j in range(len(num_CL_with_distance)-1):
+#       value = [b - a for a, b in zip(num_CL_with_distance[j], num_CL_with_distance[j+1])]
+#       num_difference.append(value)
+    
+#    num_difference.insert(1, num_CL_with_distance[0])
+    
+#    EBP = hierachy_EBP(original_CL, num_difference, len_num_CL_distance, y_hat)
+#    EBR = hierachy_EBR(original_CL, num_difference, y_actural)
+#    EBF = hierachy_fscore(original_CL, num_difference, len_num_CL_distance, y_actural, y_hat)
+#    result = [round(EBP,5), round(EBR,5), round(EBF,5)]
+#    return result
+
 
 def hierachy_eval(y_actural, y_hat, distance):
     
@@ -234,4 +315,10 @@ def hierachy_eval(y_actural, y_hat, distance):
     HP = example_based_precision(num_common_label, new_y_hat)
     HR = example_based_recall(num_common_label, new_y_actural)
     result = [round(HP,5), round(HR,5)]
-    return result 
+    return result       
+            
+            
+
+        
+        
+    
