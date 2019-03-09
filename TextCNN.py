@@ -17,6 +17,7 @@ from keras.preprocessing import sequence
 from sklearn.preprocessing import MultiLabelBinarizer
 import random
 
+
 from keras.layers import Dense, Input, Flatten
 from keras.layers import Conv1D, MaxPooling1D, Embedding, Concatenate, Dropout, BatchNormalization
 from keras.optimizers import Adam
@@ -36,7 +37,7 @@ EMBEDDING_DIM = 200
 VALIDATION_SPLIT = 0.2
 
 ########## Data preprocess ##########
-with open("AbstractAndTitle.txt", "r") as data_token:
+with open("AbstractAndTitle_Large.txt", "r") as data_token:
     datatoken = data_token.readlines()
 
 datatoken = list(filter(None, datatoken))
@@ -89,7 +90,7 @@ mlb = MultiLabelBinarizer(classes = meshIDs)
 print("Lable dimension: ", label_dim)
 
 # read full mesh list 
-with open("MeshIDListSmall.txt", "r") as ml:
+with open("MeshIDListLarge.txt", "r") as ml:
     meshList = ml.readlines()
 
 mesh_out = []
@@ -127,6 +128,13 @@ train_data, test_data, train_mesh, test_mesh = train_test_split(data, mesh_label
 
 test_labels = mlb.fit_transform(test_mesh)
 test_labelsIndex = getLabelIndex(test_labels)
+
+# save true label into file
+true_label = open('TextCNN_true_label.txt', 'w')
+for meshs in test_mesh:
+    mesh = ' '.join(meshs)
+    true_label.writelines(mesh.strip()+ "\r")
+true_label.close()
 
 nb_validation_samples = int(VALIDATION_SPLIT * len(train_data))
 
@@ -219,16 +227,17 @@ model.fit_generator(generator = data_generator(x_train, y_train, batch_size = BA
                     validation_steps = len(x_val) // BATCH_SIZE)
 
 # serialize model to JSON
-#model_json = model.to_json()
-#with open("CNN_model.json", "w") as json_file:
-#    json_file.write(model_json)
+model_json = model.to_json()
+with open("TextCNN_model.json", "w") as json_file:
+    json_file.write(model_json)
 # serialize weights to HDF5
-#model.save_weights("CNN_model_weights.h5")
-#print("Saved model to disk")
+model.save_weights("TextCNN_model_weights.h5")
+print("Saved model to disk")
 
 ############################### Evaluations ###################################
 test_data = sequence.pad_sequences(test_data, maxlen = MAX_SEQUENCE_LENGTH)
 pred = model.predict(test_data)
+#labelInfo["predLabel"] = pred
 
 # predicted binary labels 
 # find the top k labels in the predicted label set
@@ -261,12 +270,53 @@ top_15_mesh = [list(item) for item in top_15_mesh]
 
 end = time.time()
 print("Run Time: ", end - start)
+
+# save predicted label into file 
+pred_label_5 = open('TextCNN_pred_label_5.txt', 'w')
+for meshs in top_5_mesh:
+    mesh = ' '.join(meshs)
+    pred_label_5.writelines(mesh.strip()+ "\r")
+pred_label_5.close()
+
+pred_label_10 = open('TextCNN_pred_label_10.txt', 'w')
+for meshs in top_10_mesh:
+    mesh = ' '.join(meshs)
+    pred_label_10.writelines(mesh.strip()+ "\r")
+pred_label_10.close()
+
+pred_label_15 = open('TextCNN_pred_label_15.txt', 'w')
+for meshs in top_15_mesh:
+    mesh = ' '.join(meshs)
+    pred_label_15.writelines(mesh.strip()+ "\r")
+pred_label_15.close()
 ########################### Evaluation Metrics  #############################
 # precision @k
 precision = precision_at_ks(pred, test_labelsIndex, ks = [1, 3, 5])
 
 for k, p in zip([1, 3, 5], precision):
         print('p@{}: {:.5f}'.format(k, p))
+
+# check how many documents that have mesh terms greater and equal to 10/15
+label_row_total = np.sum(test_labels, axis = 1)
+index_greater_10 = [index for index, value in enumerate(label_row_total) if value >= 10]
+index_greater_15 = [index for index, value in enumerate(label_row_total) if value >= 15]
+
+def get_label_using_index(org_label, index):
+    new_label = []
+    for i in index:
+        new_label.append(org_label[i])
+    return new_label
+
+labelIndex_greater_10 = get_label_using_index(test_labelsIndex, index_greater_10)
+labelIndex_greater_15 = get_label_using_index(test_labelsIndex, index_greater_15)
+pred_10 = np.asarray(get_label_using_index(pred, index_greater_10))
+pred_15 = np.asarray(get_label_using_index(pred, index_greater_15))
+
+# precision at 10 and precision at 15
+precision_10 = precision_at_ks(pred_10, labelIndex_greater_10, ks = [10])
+print("p@10:", precision_10)
+precision_15 = precision_at_ks(pred_15, labelIndex_greater_15, ks = [15])
+print("p@15:", precision_15)
 
 # nDCG @k
 nDCG_1 = []
@@ -307,11 +357,11 @@ Hamming_loss_15 = round(Hamming_loss_15,5)
 print("ndcg@1: ", nDCG_1)
 print("ndcg@3: ", nDCG_3)
 print("ndcg@5: ", nDCG_5)
-print("Hamming Loss@20: ", Hamming_loss_5)
+print("Hamming Loss@5: ", Hamming_loss_5)
 print("Hamming Loss@10: ", Hamming_loss_10)
-print("Hamming Loss@20: ", Hamming_loss_15)
+print("Hamming Loss@15: ", Hamming_loss_15)
 
-########## example-based evaluation ##########
+###### example-based evaluation
 
 # calculate example-based evaluation
 example_based_measure_5 = example_based_evaluation(test_mesh, top_5_mesh)
@@ -329,7 +379,7 @@ print("EMP@15, EMR@15, EMF@15")
 for em in example_based_measure_15:
     print(em, ",")    
 
-########### label-based evaluation ############
+# label-based evaluation
 label_measure_5 = perf_measure(test_labels, top_5_pred)
 print("MaP@5, MiP@5, MaF@5, MiF@5: " )
 for measure in label_measure_5:
@@ -347,11 +397,11 @@ for measure in label_measure_15:
 
 ############ hierachy evaluation ################
 hierachy_eval_5_dis1 = hierachy_eval(test_mesh, top_5_mesh, 1)
-print("HierEvalP_1@5, HierEvalR_1@5: " )
+print("HP_1@5, HR_1@5: " )
 for measure in hierachy_eval_5_dis1:
     print(measure, ",")     
 hierachy_eval_5_dis2 = hierachy_eval(test_mesh, top_5_mesh, 2)
-print("HierEvalP_2@5, HierEvalR_2@5: " )
+print("HP_2@5, HR_2@5: " )
 for measure in hierachy_eval_5_dis2:
     print(measure, ",") 
 
