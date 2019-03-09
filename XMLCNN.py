@@ -17,15 +17,19 @@ import numpy as np
 from data_helper import text_preprocess
 from keras.preprocessing.text import Tokenizer
 from sklearn.model_selection import train_test_split
+
+
 from keras.preprocessing import sequence
 from sklearn.preprocessing import MultiLabelBinarizer
 import random
+
 from keras.layers import Dense, Input, Flatten
 from keras.layers import Conv2D, MaxPooling2D, Embedding, Concatenate, Dropout, BatchNormalization, Reshape
 from keras.optimizers import Adam
 from keras.models import Model
+
 from sklearn.metrics import hamming_loss
-from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based_evaluation
+from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based_evaluation, hierachy_eval
 
 start = time. time()
 #### GPU specified ####
@@ -38,7 +42,7 @@ EMBEDDING_DIM = 200
 VALIDATION_SPLIT = 0.2
 
 ########## Data preprocess ##########
-with open("AbstractAndTitle.txt", "r") as data_token:
+with open("AbstractAndTitle_Large.txt", "r") as data_token:
     datatoken = data_token.readlines()
 
 datatoken = list(filter(None, datatoken))
@@ -77,9 +81,9 @@ seconde_largest_length= second_largest([len(seq) for seq in x_seq])
 print("Max sequence length: %s " % MAX_SEQUENCE_LENGTH)
 print("Second largest sequence length: %s" % seconde_largest_length)
 
-if MAX_SEQUENCE_LENGTH >= seconde_largest_length:
-    MAX_SEQUENCE_LENGTH = seconde_largest_length
-print("Padding size: %s" % MAX_SEQUENCE_LENGTH)
+#if MAX_SEQUENCE_LENGTH >= seconde_largest_length:
+#    MAX_SEQUENCE_LENGTH = seconde_largest_length
+#print("Padding size: %s" % MAX_SEQUENCE_LENGTH)
 
 # read full meshIDs
 with open("MeshIDList.txt", "r") as ml:
@@ -91,7 +95,7 @@ mlb = MultiLabelBinarizer(classes = meshIDs)
 print("Lable dimension: ", label_dim)
 
 # read full mesh list 
-with open("MeshIDListSmall.txt", "r") as ml:
+with open("MeshIDListLarge.txt", "r") as ml:
     meshList = ml.readlines()
 
 mesh_out = []
@@ -124,10 +128,17 @@ def getLabelIndex(labels):
     label_index = label_index.astype(np.int32)
     return label_index
     
-train_data, test_data, train_mesh, test_mesh = train_test_split(data, mesh_label, test_size=0.2, random_state = 8)
+train_data, test_data, train_mesh, test_mesh = train_test_split(data, mesh_label, test_size=0.1, random_state = 8)
 
 test_labels = mlb.fit_transform(test_mesh)
 test_labelsIndex = getLabelIndex(test_labels)
+
+# save true label into file
+true_label = open('XML_true_label.txt', 'w')
+for meshs in test_mesh:
+    mesh = ' '.join(meshs)
+    true_label.writelines(mesh.strip()+ "\r")
+true_label.close()
 
 nb_validation_samples = int(VALIDATION_SPLIT * len(train_data))
 
@@ -202,8 +213,8 @@ reshape = Reshape((MAX_SEQUENCE_LENGTH, EMBEDDING_DIM, 1))(embedded_sequences)
 for fsz in filter_sizes:
     l_conv_XML = Conv2D(nb_filter=128,kernel_size=(MAX_SEQUENCE_LENGTH, fsz),activation='relu', data_format = 'channels_last')(reshape)
     l_norm = BatchNormalization()(l_conv_XML)
-    #pool_size = (EMBEDDING_DIM - fsz + 1, 1) # maxpooling
-    pool_size = (10, 1) # chunck maxpooling
+#    pool_size = (EMBEDDING_DIM - fsz + 1, 1)
+    pool_size = (10, 1)
     l_pool_XML = MaxPooling2D(pool_size = pool_size, strides = (10, 1), padding='valid', data_format = 'channels_first')(l_norm)
     convs_XML.append(l_pool_XML)
 
@@ -235,19 +246,54 @@ pred = model.predict(test_data)
 
 # predicted binary labels 
 # find the top k labels in the predicted label set
-def top_k_predicted(predictions, k):
+def top_k_predicted(goldenTruth, predictions, k):
     predicted_label = np.zeros(predictions.shape)
     for i in range(len(predictions)):
-        top_k_index = (predictions[i].argsort()[-k:][::-1]).tolist()
+        goldenK = len(goldenTruth[i])
+        if goldenK <= k:
+            top_k_index = (predictions[i].argsort()[-goldenK:][::-1]).tolist()
+        else:
+            top_k_index = (predictions[i].argsort()[-k:][::-1]).tolist()
         for j in top_k_index:
             predicted_label[i][j] = 1
     predicted_label = predicted_label.astype(np.int64)
     return predicted_label
 
-top_10_pred = top_k_predicted(pred, 10)
-top_20_pred = top_k_predicted(pred, 20)
+
+top_5_pred = top_k_predicted(test_mesh, pred, 5)
+# convert binary label back to orginal ones
+top_5_mesh = mlb.inverse_transform(top_5_pred)
+top_5_mesh = [list(item) for item in top_5_mesh]
+ 
+top_10_pred = top_k_predicted(test_mesh, pred, 10)
+top_10_mesh = mlb.inverse_transform(top_10_pred)
+top_10_mesh = [list(item) for item in top_10_mesh]
+       
+top_15_pred = top_k_predicted(test_mesh, pred, 15)
+top_15_mesh = mlb.inverse_transform(top_15_pred)
+top_15_mesh = [list(item) for item in top_15_mesh]
+
 end = time.time()
 print("Run Time: ", end - start)
+########################### Evaluation Metrics  #############################
+# save predicted label into file 
+pred_label_5 = open('XML_pred_label_5.txt', 'w')
+for meshs in top_5_mesh:
+    mesh = ' '.join(meshs)
+    pred_label_5.writelines(mesh.strip()+ "\r")
+pred_label_5.close()
+
+pred_label_10 = open('XML_pred_label_10.txt', 'w')
+for meshs in top_10_mesh:
+    mesh = ' '.join(meshs)
+    pred_label_10.writelines(mesh.strip()+ "\r")
+pred_label_10.close()
+
+pred_label_15 = open('XML_pred_label_15.txt', 'w')
+for meshs in top_15_mesh:
+    mesh = ' '.join(meshs)
+    pred_label_15.writelines(mesh.strip()+ "\r")
+pred_label_15.close()
 ########################### Evaluation Metrics  #############################
 # precision @k
 precision = precision_at_ks(pred, test_labelsIndex, ks = [1, 3, 5])
@@ -255,68 +301,134 @@ precision = precision_at_ks(pred, test_labelsIndex, ks = [1, 3, 5])
 for k, p in zip([1, 3, 5], precision):
         print('p@{}: {:.5f}'.format(k, p))
 
+# check how many documents that have mesh terms greater and equal to 10/15
+label_row_total = np.sum(test_labels, axis = 1)
+index_greater_10 = [index for index, value in enumerate(label_row_total) if value >= 10]
+index_greater_15 = [index for index, value in enumerate(label_row_total) if value >= 15]
+
+def get_label_using_index(org_label, index):
+    new_label = []
+    for i in index:
+        new_label.append(org_label[i])
+    return new_label
+
+labelIndex_greater_10 = get_label_using_index(test_labelsIndex, index_greater_10)
+labelIndex_greater_15 = get_label_using_index(test_labelsIndex, index_greater_15)
+pred_10 = np.asarray(get_label_using_index(pred, index_greater_10))
+pred_15 = np.asarray(get_label_using_index(pred, index_greater_15))
+
+# precision at 10 and precision at 15
+precision_10 = precision_at_ks(pred_10, labelIndex_greater_10, ks = [10])
+print("p@10:", precision_10)
+precision_15 = precision_at_ks(pred_15, labelIndex_greater_15, ks = [15])
+print("p@15:", precision_15)
+
 # nDCG @k
 nDCG_1 = []
 nDCG_3 = []
 nDCG_5 = []
+Hamming_loss_5 = []
 Hamming_loss_10 = []
-Hamming_loss_20 = []
+Hamming_loss_15 = []
 for i in range(pred.shape[0]):
     
     ndcg1 = ndcg_score(test_labels[i], pred[i], k = 1, gains="linear")
     ndcg3 = ndcg_score(test_labels[i], pred[i], k = 3, gains="linear")
     ndcg5 = ndcg_score(test_labels[i], pred[i], k = 5, gains="linear")
     
+    hl_5 = hamming_loss(test_labels[0], top_5_pred[0])
     hl_10 = hamming_loss(test_labels[0], top_10_pred[0])
-    hl_20 = hamming_loss(test_labels[0], top_20_pred[0])
+    hl_15 = hamming_loss(test_labels[0], top_15_pred[0])
     
     nDCG_1.append(ndcg1)
     nDCG_3.append(ndcg3)
     nDCG_5.append(ndcg5)
     
+    Hamming_loss_5.append(hl_5)
     Hamming_loss_10.append(hl_10)
-    Hamming_loss_20.append(hl_20)
+    Hamming_loss_15.append(hl_15)
 
 nDCG_1 = np.mean(nDCG_1)
 nDCG_3 = np.mean(nDCG_3)
 nDCG_5 = np.mean(nDCG_5)
+
+Hamming_loss_5 = np.mean(Hamming_loss_5)
+Hamming_loss_5 = round(Hamming_loss_5,5)
 Hamming_loss_10 = np.mean(Hamming_loss_10)
 Hamming_loss_10 = round(Hamming_loss_10,5)
-Hamming_loss_20 = np.mean(Hamming_loss_20)
-Hamming_loss_20 = round(Hamming_loss_20,5)
+Hamming_loss_15 = np.mean(Hamming_loss_15)
+Hamming_loss_15 = round(Hamming_loss_15,5)
       
 print("ndcg@1: ", nDCG_1)
 print("ndcg@3: ", nDCG_3)
 print("ndcg@5: ", nDCG_5)
+print("Hamming Loss@5: ", Hamming_loss_5)
 print("Hamming Loss@10: ", Hamming_loss_10)
-print("Hamming Loss@20: ", Hamming_loss_20)
+print("Hamming Loss@15: ", Hamming_loss_15)
 
 ###### example-based evaluation
-# convert binary label back to orginal ones
-top_10_labels = mlb.inverse_transform(top_10_pred)
-top_20_labels = mlb.inverse_transform(top_20_pred)
 
 # calculate example-based evaluation
-example_based_measure_10 = example_based_evaluation(test_mesh, top_10_labels)
+example_based_measure_5 = example_based_evaluation(test_mesh, top_5_mesh)
+print("EMP@5, EMR@5, EMF@5")
+for em in example_based_measure_5:
+    print(em, ",")
+
+example_based_measure_10 = example_based_evaluation(test_mesh, top_10_mesh)
 print("EMP@10, EMR@10, EMF@10")
 for em in example_based_measure_10:
     print(em, ",")
 
-example_based_measure_20 = example_based_evaluation(test_mesh, top_20_labels)
-print("EMP@20, EMR@20, EMF@20")
-for em in example_based_measure_20:
+example_based_measure_15 = example_based_evaluation(test_mesh, top_15_mesh)
+print("EMP@15, EMR@15, EMF@15")
+for em in example_based_measure_15:
     print(em, ",")    
 
 # label-based evaluation
+label_measure_5 = perf_measure(test_labels, top_5_pred)
+print("MaP@5, MiP@5, MaF@5, MiF@5: " )
+for measure in label_measure_5:
+    print(measure, ",")    
+    
 label_measure_10 = perf_measure(test_labels, top_10_pred)
 print("MaP@10, MiP@10, MaF@10, MiF@10: " )
 for measure in label_measure_10:
     print(measure, ",")
 
-label_measure_20 = perf_measure(test_labels, top_20_pred)
-print("MaP@20, MiP@20, MaF@20, MiF@20: " )
-for measure in label_measure_20:
+label_measure_15 = perf_measure(test_labels, top_15_pred)
+print("MaP@15, MiP@15, MaF@15, MiF@15: " )
+for measure in label_measure_15:
     print(measure, ",")    
 
-print("Finish!")
+############ hierachy evaluation ################
+hierachy_eval_5_dis1 = hierachy_eval(test_mesh, top_5_mesh, 1)
+print("HP_1@5, HR_1@5: " )
+for measure in hierachy_eval_5_dis1:
+    print(measure, ",")     
+hierachy_eval_5_dis2 = hierachy_eval(test_mesh, top_5_mesh, 2)
+print("HP_2@5, HR_2@5: " )
+for measure in hierachy_eval_5_dis2:
+    print(measure, ",") 
 
+    
+hierachy_eval_10_dis1 = hierachy_eval(test_mesh, top_10_mesh, 1)
+print("HP_1@10, HR_1@10: " )
+for measure in hierachy_eval_10_dis1:
+    print(measure, ",")     
+hierachy_eval_10_dis2 = hierachy_eval(test_mesh, top_10_mesh, 2)
+print("HP_2@10, HR_2@10: " )
+for measure in hierachy_eval_10_dis2:
+    print(measure, ",") 
+
+    
+hierachy_eval_15_dis1 = hierachy_eval(test_mesh, top_15_mesh, 1)
+print("HP_1@15, HR_1@15: " )
+for measure in hierachy_eval_15_dis1:
+    print(measure, ",")     
+hierachy_eval_15_dis2 = hierachy_eval(test_mesh, top_15_mesh, 2)
+print("HP_2@15, HR_2@15: " )
+for measure in hierachy_eval_15_dis2:
+    print(measure, ",") 
+
+
+print("Finish!")
