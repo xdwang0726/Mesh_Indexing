@@ -17,6 +17,7 @@ from keras.preprocessing import sequence
 from sklearn.preprocessing import MultiLabelBinarizer
 import random
 
+
 from keras.layers import Dense, Input, Flatten
 from keras.layers import Conv1D, Embedding, MaxPooling1D, Concatenate, Dropout, BatchNormalization
 from keras.optimizers import Adam
@@ -28,7 +29,7 @@ from eval_helper import precision_at_ks, ndcg_score, perf_measure, example_based
 start = time. time()
 #### GPU specified ####
 os.environ["CUDA_DEVUCE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
 
 ########## FIXED PARAMETERS ##########
 BATCH_SIZE = 10
@@ -36,13 +37,13 @@ EMBEDDING_DIM = 200
 VALIDATION_SPLIT = 0.2
 
 ########## Data preprocess ##########
-with open("FullArticle_Large.txt", "r") as data_token:
+with open("Full_Large.txt", "r") as data_token:
     datatoken = data_token.readlines()
     
-with open("AbstractAndTitle1.txt", "r") as ab_token:
+with open("AbstractAndTitle_Large.txt", "r") as ab_token:
     abtoken = ab_token.readlines()
 
-with open("FullArticle_CaptionAndPara.txt", "r") as cp_token:
+with open("CaptionAndPara_Large.txt", "r") as cp_token:
     cptoken = cp_token.readlines()
     
 datatoken = list(filter(None, datatoken))
@@ -106,7 +107,7 @@ label_dim = len(meshIDs)
 mlb = MultiLabelBinarizer(classes = meshIDs)
 
 # read full mesh list 
-with open("MeshIDListFull.txt", "r") as ml:
+with open("MeshIDListLarge.txt", "r") as ml:
     meshList = ml.readlines()
 print("Lable dimension: ", len(meshList))
 
@@ -161,7 +162,7 @@ test_labels = mlb.fit_transform(test_mesh)
 test_labelsIndex = getLabelIndex(test_labels)
 
 # save true label into file
-true_label = open('true_label_F.txt', 'w')
+true_label = open('MultichannelTextCNN_true_label.txt', 'w')
 for meshs in test_mesh:
     mesh = ' '.join(meshs)
     true_label.writelines(mesh.strip()+ "\r")
@@ -291,12 +292,12 @@ model.fit_generator(generator = data_generator_two(x_train_ab, x_train_cp, y_tra
                     validation_steps = len(x_val_ab) // BATCH_SIZE)
 
 # serialize model to JSON
-#model_json = model.to_json()
-#with open("CNN_model.json", "w") as json_file:
-#    json_file.write(model_json)
+model_json = model.to_json()
+with open("MultichannelTextCNN_model.json", "w") as json_file:
+    json_file.write(model_json)
 # serialize weights to HDF5
-#model.save_weights("CNN_model_weights.h5")
-#print("Saved model to disk")
+model.save_weights("MultichannelTextCNN_model_weights.h5")
+print("Saved model to disk")
 
 ############################### Evaluations ###################################
 test_data_ab = sequence.pad_sequences(test_data_ab, maxlen = MAX_SEQUENCE_LENGTH_ab)
@@ -332,19 +333,19 @@ top_15_pred = top_k_predicted(test_mesh, pred, 15)
 top_15_mesh = mlb.inverse_transform(top_15_pred)
 top_15_mesh = [list(item) for item in top_15_mesh]
 # save predicted label into file 
-pred_label_5 = open('pred_label_5_F.txt', 'w')
+pred_label_5 = open('MultichannelTextCNN_pred_label_5.txt', 'w')
 for meshs in top_5_mesh:
     mesh = ' '.join(meshs)
     pred_label_5.writelines(mesh.strip()+ "\r")
 pred_label_5.close()
 
-pred_label_10 = open('pred_label_10_F.txt', 'w')
+pred_label_10 = open('MultichannelTextCNN_pred_label_10.txt', 'w')
 for meshs in top_10_mesh:
     mesh = ' '.join(meshs)
     pred_label_10.writelines(mesh.strip()+ "\r")
 pred_label_10.close()
 
-pred_label_15 = open('pred_label_15_F.txt', 'w')
+pred_label_15 = open('MultichannelTextCNN_pred_label_15.txt', 'w')
 for meshs in top_15_mesh:
     mesh = ' '.join(meshs)
     pred_label_15.writelines(mesh.strip()+ "\r")
@@ -385,37 +386,43 @@ print("p@15:", precision_15)
 nDCG_1 = []
 nDCG_3 = []
 nDCG_5 = []
+Hamming_loss_5 = []
 Hamming_loss_10 = []
-Hamming_loss_20 = []
+Hamming_loss_15 = []
 for i in range(pred.shape[0]):
     
     ndcg1 = ndcg_score(test_labels[i], pred[i], k = 1, gains="linear")
     ndcg3 = ndcg_score(test_labels[i], pred[i], k = 3, gains="linear")
     ndcg5 = ndcg_score(test_labels[i], pred[i], k = 5, gains="linear")
     
+    hl_5 = hamming_loss(test_labels[0], top_5_pred[0])
     hl_10 = hamming_loss(test_labels[0], top_10_pred[0])
-    hl_20 = hamming_loss(test_labels[0], top_15_pred[0])
+    hl_15 = hamming_loss(test_labels[0], top_15_pred[0])
     
     nDCG_1.append(ndcg1)
     nDCG_3.append(ndcg3)
     nDCG_5.append(ndcg5)
     
+    Hamming_loss_5.append(hl_5)
     Hamming_loss_10.append(hl_10)
-    Hamming_loss_20.append(hl_20)
+    Hamming_loss_15.append(hl_15)
 
 nDCG_1 = np.mean(nDCG_1)
 nDCG_3 = np.mean(nDCG_3)
 nDCG_5 = np.mean(nDCG_5)
+Hamming_loss_5 = np.mean(Hamming_loss_5)
+Hamming_loss_5 = round(Hamming_loss_5,5)
 Hamming_loss_10 = np.mean(Hamming_loss_10)
 Hamming_loss_10 = round(Hamming_loss_10,5)
-Hamming_loss_20 = np.mean(Hamming_loss_20)
-Hamming_loss_20 = round(Hamming_loss_20,5)
+Hamming_loss_15 = np.mean(Hamming_loss_15)
+Hamming_loss_15 = round(Hamming_loss_15,5)
       
 print("ndcg@1: ", nDCG_1)
 print("ndcg@3: ", nDCG_3)
 print("ndcg@5: ", nDCG_5)
+print("Hamming Loss@5: ", Hamming_loss_5)
 print("Hamming Loss@10: ", Hamming_loss_10)
-print("Hamming Loss@20: ", Hamming_loss_20)
+print("Hamming Loss@15: ", Hamming_loss_15)
 
 ####### example-based evaluation ########
 # calculate example-based evaluation
