@@ -316,9 +316,4 @@ def hierachy_eval(y_actural, y_hat, distance):
     HR = example_based_recall(num_common_label, new_y_actural)
     result = [round(HP,5), round(HR,5)]
     return result       
-            
-            
-
-        
-        
-    
+  
